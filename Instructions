@@ -1,0 +1,109 @@
+
+Firstly you have to install packages for nav2 and turtlebot3 as u already know using this command 
+
+sudo apt install ros-humble-navigation2 ros-humble-nav2-bringup ros-humble-turtlebot3*
+
+
+
+There are some issues with Nav2 stack in ros2 humble in loading the map. here is the solution for that.
+
+1st fix:
+
+we need to change the DDS from fast DDS to cyclocne DDS.
+
+to install cyclone DDS use command:
+
+sudo apt update
+
+Now install cycloneDDS using the command
+
+sudo apt install ros-humble-rmw-cyclonedds-cpp
+
+Now after insalling this DDS we need to tell ros to use this DDS.
+
+to do this we need to export the enviromnt
+
+to do this to bashrc script and write some commands:
+
+export TURTLEBOT3_MODEL=waffle
+
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+And the second thing to do is to modify a parameter file where the turtlebot3 navigation package is installed.
+
+go to /opt/ros/humble
+
+if you want get parameters files for the installed package you go to share folder
+
+/opt/ros/humble/share
+
+Go to below location
+
+/opt/ros/humble/share/turtlebot3_navigation2/param
+
+you will see all the .yaml file for all the models.
+
+
+
+we are using waffle model then we need to edit this file using the command;
+
+sudo gedit waffle.yaml
+
+
+
+in the file you need to search for robot_model_type
+
+and chnage th emodel ttpe to nav2_amcl::DifferentialMotionModel
+
+First need to start the robot using command:
+
+ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+
+Now we going to start the navigation for the robot using command :
+
+ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True map:=maps/my_map.yaml
+
+It will open Rviz software and loaded map.
+
+Now use 2D pose Estimate at upper bar and select the starting position of robot and orientation according to the gazbo.
+
+and verify the map position according to the gazbo simlation tool in the Rviz.
+
+Now click on Nav2 Goal to give robot new destrination point and orientation.
+
+
+
+
+
+i am sharing the package "turtlebot3_gazebo" also with you. 
+
+i have already generated the map i will provide also with the folder name "maps"
+
+
+
+it will start the robot in the world in gazebo.
+
+
+
+
+Now you can replace the controller which is on this website :
+https://github.com/ros-navigation/navigation2_tutorials/tree/humble/nav2_pure_pursuit_controller
+
+and chnage the parameters in this "turtlebot3_navigation2/src/turtlebot3_navigation2/param/waffle.yaml" to use the new controller. 
+
+and apply the task which i told you. 
+
+JazakAllah. 
+
+
+
+
+
+
+
+
+
+
+
+
+
