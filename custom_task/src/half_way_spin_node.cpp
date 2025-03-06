@@ -4,6 +4,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <lifecycle_msgs/srv/change_state.hpp>
 #include <lifecycle_msgs/msg/transition.hpp>
+#include <lifecycle_msgs/srv/get_state.hpp>
 
 class HalfwaySpinNode : public rclcpp::Node
 {
@@ -19,7 +20,13 @@ public:
         cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
 
         lifecycle_client_ = create_client<lifecycle_msgs::srv::ChangeState>(
-            "/controller_server/manage_lifecycle_node");
+            "/controller_server/change_state");
+
+        get_state_client_ = create_client<lifecycle_msgs::srv::GetState>(
+            "/controller_server/get_state");
+
+        // Initialize state
+        is_controller_active_ = false;
     }
 
 private:
@@ -27,13 +34,17 @@ private:
     nav_msgs::msg::Odometry current_odom_;
     bool goal_received_ = false;
     bool halfway_spun_ = false;
-
-    double initial_distance_ = 0.0;  // Track initial distance when goal is received
+    bool is_spinning_ = false;
+    bool is_controller_active_ = false;
+    double initial_distance_ = 0.0;
+    rclcpp::Time spin_start_time_;
 
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr lifecycle_client_;
+    rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedPtr get_state_client_;
+    rclcpp::TimerBase::SharedPtr spin_timer_;
 
     void goalCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
     {
@@ -59,16 +70,14 @@ private:
             {
                 RCLCPP_INFO(get_logger(), "Halfway reached - Pausing Nav2 and performing spin.");
 
-                // Pause Nav2's controller
-                manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
+                // Check if the controller is active before deactivating
+                if (is_controller_active_)
+                {
+                    manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
+                }
 
-                // Perform spin
-                performSpin();
-
-                // Resume Nav2's controller
-                manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
-
-                RCLCPP_INFO(get_logger(), "Spin complete - Resuming Nav2.");
+                // Start spin
+                startSpin();
                 halfway_spun_ = true;
             }
         }
@@ -93,25 +102,43 @@ private:
         return std::hypot(x2 - x1, y2 - y1);
     }
 
-    void performSpin()
+    void startSpin()
     {
+        is_spinning_ = true;
+        spin_start_time_ = now();
+        spin_timer_ = create_wall_timer(
+            std::chrono::milliseconds(50),  // 20 Hz
+            std::bind(&HalfwaySpinNode::spinCallback, this));
+    }
+
+    void spinCallback()
+    {
+        if (!is_spinning_)
+        {
+            return;
+        }
+
         geometry_msgs::msg::Twist cmd;
         cmd.angular.z = 0.5;  // Rotate at 0.5 rad/s
 
-        rclcpp::Time start_time = now();
-        rclcpp::Rate rate(20);  // 20 Hz
-
         double spin_duration = 2 * M_PI / 0.5;  // Full 360 degrees rotation
 
-        while ((now() - start_time).seconds() < spin_duration)
+        if ((now() - spin_start_time_).seconds() < spin_duration)
         {
             cmd_vel_pub_->publish(cmd);
-            rate.sleep();
         }
+        else
+        {
+            // Stop rotation
+            cmd.angular.z = 0.0;
+            cmd_vel_pub_->publish(cmd);
+            is_spinning_ = false;
+            spin_timer_->cancel();
 
-        // Stop rotation
-        cmd.angular.z = 0.0;
-        cmd_vel_pub_->publish(cmd);
+            // Resume Nav2's controller
+            manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+            RCLCPP_INFO(get_logger(), "Spin complete - Resuming Nav2.");
+        }
     }
 
     void manageControllerLifecycle(uint8_t transition_id)
@@ -125,18 +152,38 @@ private:
         auto request = std::make_shared<lifecycle_msgs::srv::ChangeState::Request>();
         request->transition.id = transition_id;
 
-        auto future_result = lifecycle_client_->async_send_request(request);
+        auto response_callback = [this, transition_id](rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedFuture future) {
+            if (future.valid()) {
+                const char* command_str = (transition_id == lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE) ? "DEACTIVATED" : "ACTIVATED";
+                RCLCPP_INFO(get_logger(), "Controller successfully %s.", command_str);
+            } else {
+                RCLCPP_ERROR(get_logger(), "Failed to manage controller lifecycle.");
+            }
+        };
 
-        if (rclcpp::spin_until_future_complete(this->get_node_base_interface(), future_result) ==
-            rclcpp::FutureReturnCode::SUCCESS)
+        lifecycle_client_->async_send_request(request, response_callback);
+    }
+
+    void checkControllerState()
+    {
+        if (!get_state_client_->wait_for_service(std::chrono::seconds(3)))
         {
-            const char* command_str = (transition_id == lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE) ? "DEACTIVATED" : "ACTIVATED";
-            RCLCPP_INFO(get_logger(), "Controller successfully %s.", command_str);
+            RCLCPP_ERROR(get_logger(), "GetState service not available!");
+            return;
         }
-        else
-        {
-            RCLCPP_ERROR(get_logger(), "Failed to manage controller lifecycle.");
-        }
+
+        auto request = std::make_shared<lifecycle_msgs::srv::GetState::Request>();
+        auto future = get_state_client_->async_send_request(request);
+
+        auto state_callback = [this](rclcpp::Client<lifecycle_msgs::srv::GetState>::SharedFuture future) {
+            if (future.valid()) {
+                is_controller_active_ = (future.get()->current_state.id == lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE);
+            } else {
+                RCLCPP_ERROR(get_logger(), "Failed to get controller state.");
+            }
+        };
+
+        get_state_client_->async_send_request(request, state_callback);
     }
 };
 
