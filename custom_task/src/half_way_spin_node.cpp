@@ -71,10 +71,10 @@ private:
                 RCLCPP_INFO(get_logger(), "Halfway reached - Pausing Nav2 and performing spin.");
 
                 // Check if the controller is active before deactivating
-                if (is_controller_active_)
-                {
-                    manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
-                }
+                // if (is_controller_active_)
+                // {
+                //     manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_DEACTIVATE);
+                // }
 
                 // Start spin
                 startSpin();
@@ -107,7 +107,7 @@ private:
         is_spinning_ = true;
         spin_start_time_ = now();
         spin_timer_ = create_wall_timer(
-            std::chrono::milliseconds(50),  // 20 Hz
+            std::chrono::milliseconds(20),  // 50 Hz
             std::bind(&HalfwaySpinNode::spinCallback, this));
     }
 
@@ -136,7 +136,7 @@ private:
             spin_timer_->cancel();
 
             // Resume Nav2's controller
-            manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
+            // manageControllerLifecycle(lifecycle_msgs::msg::Transition::TRANSITION_ACTIVATE);
             RCLCPP_INFO(get_logger(), "Spin complete - Resuming Nav2.");
         }
     }
