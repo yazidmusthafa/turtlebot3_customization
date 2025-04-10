@@ -69,6 +69,21 @@
  
    nav_msgs::msg::Path global_plan_;
    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>> global_pub_;
+
+    // 🆕 Added for halfway spin logic
+    bool halfway_computed_{false};
+    bool has_spun_{false};
+    size_t halfway_index_{0};
+
+    rclcpp::Time spin_start_time_;
+    bool is_spinning_ = false;
+
+    geometry_msgs::msg::PoseStamped last_goal_pose_;
+    bool goal_pose_initialized_ = false;
+    double halfway_distance_ = 0.0;
+
+    nav_msgs::msg::Path original_plan_;
+    
  };
  
  }  // namespace nav2_pure_pursuit_controller

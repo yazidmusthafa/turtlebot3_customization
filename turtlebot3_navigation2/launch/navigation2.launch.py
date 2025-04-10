@@ -84,9 +84,9 @@ def generate_launch_description():
             parameters=[{'use_sim_time': use_sim_time}],
             output='screen'),
 
-        Node(
-            package='custom_task',
-            executable='half_way_spin_node',
-            output='screen'),
+        # Node(
+        #     package='custom_task',
+        #     executable='half_way_spin_node',
+        #     output='screen'),
 
     ])
